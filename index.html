@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Riconoscimento Immagini - IA da addestrare</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    background: #111;
+    color: #eee;
+    text-align: center;
+    margin: 0;
+    padding: 20px;
+  }
+  h1 { font-size: 1.4em; }
+  #status { color: #9ad; margin-bottom: 10px; }
+  #video {
+    width: 320px;
+    height: 240px;
+    border-radius: 10px;
+    border: 2px solid #444;
+    background: #000;
+  }
+  #classes {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin: 20px 0;
+  }
+  .classe {
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 140px;
+  }
+  .classe input {
+    width: 100px;
+    margin-bottom: 6px;
+    background: #333;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px;
+  }
+  button {
+    background: #2a5;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.95em;
+  }
+  button:hover { background: #3c6; }
+  .conteggio { font-size: 0.8em; color: #aaa; display: block; margin-top: 4px; }
+  #aggiungiClasse {
+    background: #555;
+    margin-bottom: 20px;
+  }
+  #risultato {
+    font-size: 1.3em;
+    margin-top: 20px;
+    min-height: 40px;
+  }
+  #azioni { margin-top: 10px; }
+  #azioni button { background: #666; margin: 0 5px; }
+</style>
+</head>
+<body>
+
+<h1>🧠 IA di riconoscimento immagini</h1>
+<p id="status">Caricamento modello...</p>
+
+<video id="video" autoplay playsinline muted></video>
+
+<div id="classes"></div>
+<button id="aggiungiClasse">➕ Aggiungi classe</button>
+
+<div id="azioni">
+  <button id="btnPredici">▶️ Avvia riconoscimento</button>
+  <button id="btnStop">⏸️ Ferma</button>
+  <button id="btnReset">🗑️ Reset addestramento</button>
+</div>
+
+<div id="risultato"></div>
+
+<!-- Librerie TensorFlow.js -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.6/dist/knn-classifier.min.js"></script>
+
+<script>
+let net, classifier, video;
+let predicendo = false;
+let contatoreClassi = 0;
+
+const statusEl = document.getElementById('status');
+const classesEl = document.getElementById('classes');
+const risultatoEl = document.getElementById('risultato');
+
+async function avvia() {
+  classifier = knnClassifier.create();
+  video = document.getElementById('video');
+
+  // Avvia webcam
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  await new Promise(res => video.onloadedmetadata = res);
+
+  statusEl.textContent = 'Caricamento MobileNet...';
+  net = await mobilenet.load();
+  statusEl.textContent = 'Modello pronto. Aggiungi delle classi e inizia ad addestrare!';
+
+  aggiungiClasse('Classe 1');
+  aggiungiClasse('Classe 2');
+}
+
+function aggiungiClasse(nomeDefault) {
+  contatoreClassi++;
+  const id = 'classe_' + contatoreClassi;
+  const div = document.createElement('div');
+  div.className = 'classe';
+  div.innerHTML = `
+    <input type="text" value="${nomeDefault || 'Classe ' + contatoreClassi}" id="${id}_nome">
+    <br>
+    <button onclick="aggiungiEsempio('${id}')">📸 Aggiungi foto</button>
+    <span class="conteggio" id="${id}_conteggio">0 esempi</span>
+  `;
+  classesEl.appendChild(div);
+}
+
+async function aggiungiEsempio(id) {
+  if (!net) return;
+  const activation = net.infer(video, true);
+  classifier.addExample(activation, id);
+  activation.dispose();
+
+  const conteggioEl = document.getElementById(id + '_conteggio');
+  const n = parseInt(conteggioEl.textContent) + 1;
+  conteggioEl.textContent = n + ' esempi';
+}
+
+async function ciclo() {
+  if (!predicendo) return;
+
+  if (classifier.getNumClasses() > 0) {
+    const activation = net.infer(video, true);
+    const risultato = await classifier.predictClass(activation, 10);
+    activation.dispose();
+
+    const nomeInput = document.getElementById(risultato.label + '_nome');
+    const nomeClasse = nomeInput ? nomeInput.value : risultato.label;
+    const confidenza = (risultato.confidences[risultato.label] * 100).toFixed(1);
+
+    risultatoEl.textContent = `${nomeClasse} — ${confidenza}%`;
+  } else {
+    risultatoEl.textContent = 'Aggiungi almeno un esempio per iniziare.';
+  }
+
+  requestAnimationFrame(ciclo);
+}
+
+document.getElementById('aggiungiClasse').onclick = () => aggiungiClasse();
+
+document.getElementById('btnPredici').onclick = () => {
+  predicendo = true;
+  ciclo();
+};
+
+document.getElementById('btnStop').onclick = () => {
+  predicendo = false;
+};
+
+document.getElementById('btnReset').onclick = () => {
+  classifier.clearAllClasses();
+  document.querySelectorAll('.conteggio').forEach(el => el.textContent = '0 esempi');
+  risultatoEl.textContent = '';
+};
+
+avvia();
+</script>
+
+</body>
+</html>
